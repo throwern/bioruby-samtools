@@ -92,9 +92,10 @@ module Bio
         attach_function :bam_read1, [ :pointer, :pointer ], :int
         attach_function :bam_write1_core, [ :pointer, :pointer, :int, :pointer ], :int
         attach_function :bam_write1, [ :pointer, :pointer ], :int
-        attach_function :bam_format1, [ :pointer, :pointer ], :string
+        attach_function :bam_format1, [ :pointer, :pointer ], :pointer
         attach_function :bam_format1_core, [ :pointer, :pointer, :int ], :string
         attach_function :bam_get_library, [ :pointer, :pointer ], :string
+        
         class BamPileup1T < FFI::Struct
           layout(
           :b, :pointer,

@@ -52,7 +52,7 @@ module Bio
         @fasta_file = nil
         @sam_file   = nil
 
-        ObjectSpace.define_finalizer(self,  self.class.method(:finalize).to_proc)
+        ObjectSpace.define_finalizer(self,  self.class.finalize(@fasta_index, @sam_index, @sam_file))
       end
       
       #Function that actually opens the sam file
@@ -101,9 +101,12 @@ module Bio
       end
 
       # Destructor method that closes the file before letting the object be garbage collected.
-      def Sam.finalize(id)
-        id.close()
-        puts "Finalizing #{id}  at #{Time.new}"       
+      def self.finalize(fasta_index, sam_index, sam_file)
+        proc{
+          Bio::DB::SAM::Tools.fai_destroy(fasta_index) unless fasta_index.nil? || fasta_index.null?
+          Bio::DB::SAM::Tools.bam_index_destroy(sam_index) unless sam_index.nil? || sam_index.null?
+          Bio::DB::SAM::Tools.samclose(sam_file) unless sam_file.nil?
+        }       
       end
 
       #Loads the bam index to be used for fetching. If the index doesn't exists the index is built provided that
@@ -113,7 +116,7 @@ module Bio
       #if the bam file sits on a server where the executing user may not have writing permissions in the server.
       def load_index()
         raise SAMException.new(), "Indexes are only supported by BAM files, please use samtools to convert your SAM file" unless @binary
-        @sam_index = Bio::DB::SAM::Tools.bam_index_load(@sam)
+        @sam_index ||= Bio::DB::SAM::Tools.bam_index_load(@sam)
         if @sam_index.null? then
           p "Generating index for: " + @sam
           Bio::DB::SAM::Tools.bam_index_build(@sam)
@@ -217,7 +220,31 @@ module Bio
         fetch_with_function(chromosome, qstart, qend, fetchAlignment)
         als
       end  
-
+      
+      def fetch_with_function_raw(chromosome,qstart,qend,fetchFunc)
+        load_index if @sam_index.nil? || @sam_index.null?
+        chr = FFI::MemoryPointer.new :int
+        beg = FFI::MemoryPointer.new :int
+        last = FFI::MemoryPointer.new :int
+        query = query_string(chromosome, qstart,qend)
+        qpointer = FFI::MemoryPointer.from_string(query)
+        header = @sam_file[:header]
+        
+        Bio::DB::SAM::Tools.bam_parse_region(header,qpointer, chr, beg, last)
+        raise SAMException.new(), "invalid query: " + query  if(chr.read_int < 0)
+        
+        fetchAlignment = Proc.new do |bam_alignment,data|
+          fetchFunc.call(bam_alignment,header)
+          0
+        end
+        
+        Bio::DB::SAM::Tools.bam_fetch(@sam_file[:x][:bam], @sam_index,chr.read_int,beg.read_int, last.read_int, nil, fetchAlignment)
+        
+        chr.free
+        beg.free
+        last.free
+      end
+      
       #Executes a function on each Alignment inside the queried region of the chromosome. The chromosome
       #can be either the textual name or a FixNum with the internal index. However, you need to get the
       #internal index with the provided API, otherwise the pointer is outside the scope of the C library. 
@@ -231,7 +258,7 @@ module Bio
         query = query_string(chromosome, qstart,qend)
         qpointer = FFI::MemoryPointer.from_string(query)
         header = @sam_file[:header]
-        Bio::DB::SAM::Tools.bam_parse_region(header,qpointer, chr, beg, last) 
+        Bio::DB::SAM::Tools.bam_parse_region(header,qpointer, chr, beg, last)
         #raise SAMException.new(), "invalid query: " + query  if(chr.read_int < 0)
         count = 0;
 
@@ -272,7 +299,65 @@ module Bio
         #void bam_merge_core(int by_qname, const char *out, const char *headers, int n, char * const *fn, int add_RG)
         Bio::DB::SAM::Tools.bam_merge_core(by_qname, merged_file, headers, strptrs.length, argv, add_RG)
       end
+      
+      # mpileup direct filesystem output if match is supplied it will be passsed to Grep -P -e 'match' for output Regex
+      # NOTE 'match' can be crafted to supply arbitrary command line parameters. Do NOT expose this function.
+      def mpileup_text(opts, filename, match=nil)
+        raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
+        raise SAMException.new(), "No FastA provided" unless @fasta_path
+        #long option form to short samtools form..
+        long_opts = {
+        :region => :r,
+        :illumina_quals => :six,
+        :count_anomalous => :A,
+        :no_baq => :B,
+        :adjust_mapq => :C,
+        :max_per_bam_depth => :d,
+        :extended_baq => :E,
+        :exclude_reads_file => :G,
+        :list_of_positions => :l,
+        :mapping_quality_cap => :M,
+        :ignore_rg => :R,
+        :min_mapping_quality => :q,
+        :min_base_quality => :Q
+        }
 
+        ##convert any long_opts to short opts 
+        opts.each_pair do |k,v|
+          if long_opts[k]
+            opts[long_opts[k]] = v 
+            opts.delete(k)
+          end
+        end
+
+        ##remove any calls to -g or -u for mpileup, bcf output is not yet supported
+        ##and also associated output options
+        [:g, :u, :e, :h, :I, :L, :o, :p].each {|x| opts.delete(x) }
+
+        sam_opts = []
+        #strptrs << FFI::MemoryPointer.from_string("mpileup")
+        opts.each do |k,v|
+          next unless opts[k] ##dont bother unless the values provided are true.. 
+          k = '6' if k == :six
+          k = '-' + k.to_s
+          sam_opts << k
+          sam_opts << v.to_s  unless ["-R", "-B", "-E", "-6", "-A"].include?(k) #these are just flags so don't pass a value... strptrs << FFI::MemoryPointer.from_string(v.to_s)
+        end
+        
+        sam_opts << ["'#{@sam}'"]
+        unless (@fasta_path.strip.empty?)
+          sam_opts += ['-f', @fasta_path]
+        end
+        
+        comm = "#{File.join(File.expand_path(File.dirname(__FILE__)),'sam','external','samtools')} mpileup #{sam_opts.join(' ')}"
+        if (match)
+          stdin, stdout, stderr = Open3.popen3(" #{comm} | grep -P -e '#{match}' >> '#{filename}'")
+        else
+          stdin, stdout, stderr = Open3.popen3("#{comm} > '#{filename}'")
+        end
+        
+        return stderr.collect(&:to_s).join("\n")
+      end
       #calls the mpileup function, opts is a hash of options identical to the command line options for mpileup.
       #is an iterator that yields a Pileup object for each postion
       #the command line options that generate/affect BCF/VCF are ignored ie (g,u,e,h,I,L,o,p)
@@ -490,46 +575,95 @@ module Bio
       end
       
       
-      def index_stats 
+      # def index_stats 
+      #   raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
+      #   raise SAMException.new(), "No FastA provided" unless @fasta_path
+      #   strptrs = []
+      #   strptrs << FFI::MemoryPointer.from_string("idxstats")
+      #   strptrs << FFI::MemoryPointer.from_string(@sam)
+      #   strptrs << nil
+      # 
+      #   # Now load all the pointers into a native memory block
+      #   argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
+      #   strptrs.each_with_index do |p, i|
+      #      argv[i].put_pointer(0,  p)
+      #   end
+      #   
+      #   index_stats = {}
+      #   
+      #   old_stdout = STDOUT.clone
+      #   read_pipe, write_pipe = IO.pipe()
+      #   STDOUT.reopen(write_pipe)
+      #   
+      #   #int bam_idxstats(int argc, char *argv[])
+      #   Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
+      #   if fork
+      #     write_pipe.close
+      #     STDOUT.reopen(old_stdout) #beware .. stdout from other processes eg tests calling this method can get mixed in...
+      #     begin
+      #       
+      #       while line = read_pipe.readline #TAB delimited with each line consisting of reference sequence name, sequence length, # mapped reads and # unmapped reads.
+      #           info = line.split(/\t/)
+      #           next unless info.length == 4
+      #           index_stats[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i } 
+      #       end
+      #       rescue EOFError
+      #         read_pipe.close
+      #         Process.wait
+      #       end
+      #   end #fork
+      #   index_stats
+      # end
+      
+      def index_stats
         raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
         raise SAMException.new(), "No FastA provided" unless @fasta_path
+                
         strptrs = []
         strptrs << FFI::MemoryPointer.from_string("idxstats")
         strptrs << FFI::MemoryPointer.from_string(@sam)
         strptrs << nil
-
+        
         # Now load all the pointers into a native memory block
         argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
         strptrs.each_with_index do |p, i|
-           argv[i].put_pointer(0,  p)
+           argv[i].put_pointer(0, p)
         end
         
-        index_stats = {}
+        # http://pleac.sourceforge.net/pleac_ruby/processmanagementetc.html
+        # "clean and secure" version
         
-        old_stdout = STDOUT.clone
-        read_pipe, write_pipe = IO.pipe()
-        STDOUT.reopen(write_pipe)
-        
-        #int bam_idxstats(int argc, char *argv[])
+        # TODO: rake tasks do not receive stdout from bam_idxstats unless it is called here AND in the fork.
         Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
-        if fork
-          write_pipe.close
-          STDOUT.reopen(old_stdout) #beware .. stdout from other processes eg tests calling this method can get mixed in...
-          begin
-            
-            while line = read_pipe.readline #TAB delimited with each line consisting of reference sequence name, sequence length, # mapped reads and # unmapped reads.
-                info = line.split(/\t/)
-                next unless info.length == 4
-                index_stats[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i } 
-            end
-            rescue EOFError
-              read_pipe.close
-              Process.wait
-            end
-        end #fork
-        index_stats
+        readme, writeme = IO.pipe
+        pid = fork {
+            # child
+            $stdout.reopen writeme
+            readme.close
+            Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
+            # Rails fix to avoid callbacks (closing mysql connection)
+            Kernel.exit!
+        }
+        # parent
+        writeme.close
+        begin
+          #only allow 5 sec response
+          Timeout.timeout(5) do
+            Process.waitpid(pid)
+          end
+        rescue
+          Process.detach(pid)
+          return []
+        end
+        
+        {}.tap do |results|
+          readme.each do |line|
+            info = line.split(/\t/)
+            next unless info.length == 4
+            results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
+          end
+        end
       end
-      
       
 
     end
@@ -548,19 +682,19 @@ module Bio
 
       def initialize
         ObjectSpace.define_finalizer(self,
-        self.class.method(:finalize).to_proc)
+        self.class.finalize(al,calend,qlen))
       end
-      def Alignment.finalize(object_id)
-
-        #           puts "Object #{object_id} dying at #{Time.new}"
-        #             p  "?" . object_id.al
-        #            p object_id.al
-        LibC.free object_id.al
-        LibC.free object_id.sam
-        LibC.free object_id.calend
-        LibC.free object_id.qlen
-
-        LibC.free object_id.samstr
+      def self.finalize(al,calend,qlen)
+        proc{
+          #           puts "Object #{object_id} dying at #{Time.new}"
+          #             p  "?" . object_id.al
+          #            p object_id.al
+          LibC.free al
+          #LibC.free object_id.sam
+          LibC.free calend
+          LibC.free qlen
+          #LibC.free samstr
+        }
       end
 
       #Attributes from the format
@@ -574,14 +708,19 @@ module Bio
 
       def set(bam_alignment, header)
         #Create the FFI object
-        @al = Bio::DB::SAM::Tools::Bam1T.new(bam_alignment) 
-
+        
+        @al = Bio::DB::SAM::Tools::Bam1T.new(bam_alignment)
+        
         #set the raw data
-        tmp_str =  Bio::DB::SAM::Tools.bam_format1(header,al)
-        #self.sam =  tmp_str
+        data =  Bio::DB::SAM::Tools.bam_format1(header,al)
+        tmp_str = data.read_string
+        LibC.free data
+        
+        self.sam =  tmp_str
         #ObjectSpace.define_finalizer(self, proc {|id| puts "Finalizer one on #{id}" })
-        self.sam = String.new(tmp_str)
-        #LibC.free tmp_str
+        #self.sam = String.new(tmp_str)
+
+
         #Set values calculated by libbam
         core = al[:core]
         cigar = al[:data][core[:l_qname]]#define bam1_cigar(b) ((uint32_t*)((b)->data + (b)->core.l_qname)) 
