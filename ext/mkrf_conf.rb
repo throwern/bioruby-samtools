@@ -53,6 +53,7 @@ task :compile do
         cp("libbam.1.dylib","#{path_external}")
         sh "make"
         cp('samtools', "#{path_external}")      
+        chmod 0755, "#{path_external}/samtools"
       when /mswin|mingw/ then raise NotImplementedError, "BWA library is not available for Windows platform"  
     end #case
   end #cd
