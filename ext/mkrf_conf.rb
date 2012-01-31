@@ -45,6 +45,7 @@ task :compile do
         #sh "CFLAGS='-g -Wall -O2 -fPIC' make -e libbam.so.1-local"
         sh "make libbam.so.1-local"
         cp("samtools", "#{path_external}")
+        chmod 0755, "#{path_external}/samtools"
         cp("libbam.so.1","#{path_external}")
       when /darwin/
         sh "make"
