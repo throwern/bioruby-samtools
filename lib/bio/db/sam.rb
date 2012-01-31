@@ -574,96 +574,73 @@ module Bio
         pipe.close
       end
       
-      
-      # def index_stats 
-      #   raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
-      #   raise SAMException.new(), "No FastA provided" unless @fasta_path
-      #   strptrs = []
-      #   strptrs << FFI::MemoryPointer.from_string("idxstats")
-      #   strptrs << FFI::MemoryPointer.from_string(@sam)
-      #   strptrs << nil
-      # 
-      #   # Now load all the pointers into a native memory block
-      #   argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
-      #   strptrs.each_with_index do |p, i|
-      #      argv[i].put_pointer(0,  p)
-      #   end
-      #   
-      #   index_stats = {}
-      #   
-      #   old_stdout = STDOUT.clone
-      #   read_pipe, write_pipe = IO.pipe()
-      #   STDOUT.reopen(write_pipe)
-      #   
-      #   #int bam_idxstats(int argc, char *argv[])
-      #   Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
-      #   if fork
-      #     write_pipe.close
-      #     STDOUT.reopen(old_stdout) #beware .. stdout from other processes eg tests calling this method can get mixed in...
-      #     begin
-      #       
-      #       while line = read_pipe.readline #TAB delimited with each line consisting of reference sequence name, sequence length, # mapped reads and # unmapped reads.
-      #           info = line.split(/\t/)
-      #           next unless info.length == 4
-      #           index_stats[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i } 
-      #       end
-      #       rescue EOFError
-      #         read_pipe.close
-      #         Process.wait
-      #       end
-      #   end #fork
-      #   index_stats
-      # end
+      # get sequence names and lengths from header
+      def target_info
+        load_index
+        result = {}
+        #parse the header
+        header = Bio::DB::SAM::Tools::BamHeaderT.new(@sam_file[:header])
+        num_targets = header[:n_targets]
+        target_names = header[:target_name].read_array_of_pointer(num_targets).collect{|p|p.read_string.to_sym}
+        target_lengths = header[:target_len].read_array_of_uint32(num_targets)
+        # create the return hash format
+        target_names.each_with_index do |name,idx|
+          result[name] = {
+            :length => target_lengths[idx],
+            }
+        end
+        return result
+      end
       
       def index_stats
-        raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
-        raise SAMException.new(), "No FastA provided" unless @fasta_path
-                
-        strptrs = []
-        strptrs << FFI::MemoryPointer.from_string("idxstats")
-        strptrs << FFI::MemoryPointer.from_string(@sam)
-        strptrs << nil
-        
-        # Now load all the pointers into a native memory block
-        argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
-        strptrs.each_with_index do |p, i|
-           argv[i].put_pointer(0, p)
-        end
-        
-        # http://pleac.sourceforge.net/pleac_ruby/processmanagementetc.html
-        # "clean and secure" version
-        
-        # TODO: rake tasks do not receive stdout from bam_idxstats unless it is called here AND in the fork.
-        Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
-        readme, writeme = IO.pipe
-        pid = fork {
-            # child
-            $stdout.reopen writeme
-            readme.close
-            Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
-            # Rails fix to avoid callbacks (closing mysql connection)
-            Kernel.exit!
-        }
-        # parent
-        writeme.close
-        begin
-          #only allow 5 sec response
-          Timeout.timeout(5) do
-            Process.waitpid(pid)
-          end
-        rescue
-          Process.detach(pid)
-          return []
-        end
-        
-        {}.tap do |results|
-          readme.each do |line|
-            info = line.split(/\t/)
-            next unless info.length == 4
-            results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
-          end
-        end
-      end
+         raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
+         raise SAMException.new(), "No FastA provided" unless @fasta_path
+                 
+         strptrs = []
+         strptrs << FFI::MemoryPointer.from_string("idxstats")
+         strptrs << FFI::MemoryPointer.from_string(@sam)
+         strptrs << nil
+         
+         # Now load all the pointers into a native memory block
+         argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
+         strptrs.each_with_index do |p, i|
+            argv[i].put_pointer(0, p)
+         end
+         
+         # http://pleac.sourceforge.net/pleac_ruby/processmanagementetc.html
+         # "clean and secure" version
+         
+         # TODO: rake tasks do not receive stdout from bam_idxstats unless it is called here AND in the fork. Why?
+         Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
+         readme, writeme = IO.pipe
+         pid = fork {
+             # child
+             $stdout.reopen writeme
+             readme.close
+             Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
+             # Rails fix to avoid callbacks (closing mysql connection)
+             Kernel.exit!
+         }
+         # parent
+         writeme.close
+         begin
+           #only allow 5 sec response
+           Timeout.timeout(5) do
+             Process.waitpid(pid)
+           end
+         rescue
+           Process.detach(pid)
+           return []
+         end
+         
+         {}.tap do |results|
+           readme.each do |line|
+             info = line.split(/\t/)
+             next unless info.length == 4
+             results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
+           end
+         end
+       end
       
 
     end
