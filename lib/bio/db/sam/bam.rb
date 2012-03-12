@@ -144,7 +144,25 @@ module Bio
         attach_function :bam_aux_get_core, [ :pointer,:string ], :pointer
         attach_function :bam_calend, [ :pointer, :pointer ], :uint32
         attach_function :bam_cigar2qlen, [ :pointer, :pointer ], :int32_t
-
+        
+        attach_function :bam_flagstat_core, [:pointer], :pointer
+        class BamFlagstatT < FFI::Struct
+          layout(
+          :n_reads, [:long_long,2],
+          :n_mapped, [:long_long,2],
+          :n_pair_all, [:long_long,2],
+          :n_pair_map, [:long_long,2],
+          :n_pair_good, [:long_long,2],
+          :n_sgltn, [:long_long,2],
+          :n_read1, [:long_long,2],
+          :n_read2, [:long_long,2],
+          :n_dup, [:long_long,2],
+          :n_diffchr, [:long_long,2],
+          :n_diffhigh, [:long_long,2]
+          )
+        end
+        
+        
         #FIXME: if we see that we need this function, implement it on ruby, seems like FFI is having problems with
         #te static inline.
         #attach_function :bam_reg2bin, [ :uint32, :uint32 ], :int

@@ -574,7 +574,26 @@ module Bio
         pipe.close
       end
       
+      # mapping statistics
+      def flagstat
+        s = Bio::DB::SAM::Tools::BamFlagstatT.new(
+          Bio::DB::SAM::Tools.bam_flagstat_core(@sam_file[:x][:bam])
+        )
+        printf("%i + %i in total (QC-passed reads + QC-failed reads)\n", s[:n_reads][0], s[:n_reads][1]);
+        printf("%i + %i duplicates\n", s[:n_dup][0], s[:n_dup][1]);
+        printf("%i + %i mapped (%.2f%%:%.2f%%)\n", s[:n_mapped][0], s[:n_mapped][1], s[:n_mapped][0].to_f / s[:n_reads][0] * 100.0, s[:n_mapped][1].to_f / s[:n_reads][1] * 100.0);
+        printf("%i + %i paired in sequencing\n", s[:n_pair_all][0], s[:n_pair_all][1]);
+        printf("%i + %i read1\n", s[:n_read1][0], s[:n_read1][1]);
+        printf("%i + %i read2\n", s[:n_read2][0], s[:n_read2][1]);
+        printf("%i + %i properly paired (%.2f%%:%.2f%%)\n", s[:n_pair_good][0], s[:n_pair_good][1], s[:n_pair_good][0].to_f / s[:n_pair_all][0] * 100.0, s[:n_pair_good][1].to_f / s[:n_pair_all][1] * 100.0);
+        printf("%i + %i with itself and mate mapped\n", s[:n_pair_map][0], s[:n_pair_map][1]);
+        printf("%i + %i singletons (%.2f%%:%.2f%%)\n", s[:n_sgltn][0], s[:n_sgltn][1], s[:n_sgltn][0].to_f / s[:n_pair_all][0] * 100.0, s[:n_sgltn][1].to_f / s[:n_pair_all][1] * 100.0);
+        printf("%i + %i with mate mapped to a different chr\n", s[:n_diffchr][0], s[:n_diffchr][1]);
+        printf("%i + %i with mate mapped to a different chr (mapQ>=5)\n", s[:n_diffhigh][0], s[:n_diffhigh][1]);
+      end
+      
       # get sequence names and lengths from header
+      # more reliable than capturing bam_idxstats stdout
       def target_info
         load_index
         result = {}

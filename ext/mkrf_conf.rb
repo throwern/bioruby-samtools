@@ -61,6 +61,7 @@ task :compile do
   cd("samtools-#{Version}/bcftools") do
     sh "make"
     cp('bcftools', "#{path_external}")
+    chmod 0755, "#{path_external}/bcftools"
   end
 end
   
@@ -68,8 +69,8 @@ task :clean do
   cd("samtools-#{Version}") do
     sh "make clean"
   end
-  rm("#{SamToolsFile}")
-  rm_rf("samtools-#{Version}")
+  #rm("#{SamToolsFile}")
+  #rm_rf("samtools-#{Version}")
 end
 
 task :default => [:download, :compile, :clean]
