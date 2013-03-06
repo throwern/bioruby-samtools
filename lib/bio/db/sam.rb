@@ -628,22 +628,27 @@ module Bio
          
          # http://pleac.sourceforge.net/pleac_ruby/processmanagementetc.html
          # "clean and secure" version
-         
-         # TODO: rake tasks do not receive stdout from bam_idxstats unless it is called here AND in the fork. Why?
-         Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
          readme, writeme = IO.pipe
          pid = fork {
              # child
              $stdout.reopen writeme
              readme.close
              Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
+             writeme.close
              # Rails fix to avoid callbacks (closing mysql connection)
              Kernel.exit!
          }
          # parent
          writeme.close
+         # Process IO
+         results = {}
+         readme.each do |line|
+           info = line.split(/\t/)
+           next unless info.length == 4
+           results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
+         end
+         # only allow 5 sec for child to exit after closing IO
          begin
-           #only allow 5 sec response
            Timeout.timeout(5) do
              Process.waitpid(pid)
            end
@@ -651,14 +656,7 @@ module Bio
            Process.detach(pid)
            return []
          end
-         
-         {}.tap do |results|
-           readme.each do |line|
-             info = line.split(/\t/)
-             next unless info.length == 4
-             results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
-           end
-         end
+         return results
        end
       
 
