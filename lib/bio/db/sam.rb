@@ -590,6 +590,7 @@ module Bio
         printf("%i + %i singletons (%.2f%%:%.2f%%)\n", s[:n_sgltn][0], s[:n_sgltn][1], s[:n_sgltn][0].to_f / s[:n_pair_all][0] * 100.0, s[:n_sgltn][1].to_f / s[:n_pair_all][1] * 100.0);
         printf("%i + %i with mate mapped to a different chr\n", s[:n_diffchr][0], s[:n_diffchr][1]);
         printf("%i + %i with mate mapped to a different chr (mapQ>=5)\n", s[:n_diffhigh][0], s[:n_diffhigh][1]);
+        return s
       end
       
       # get sequence names and lengths from header
