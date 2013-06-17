@@ -593,7 +593,7 @@ module Bio
         return s
       end
       
-      # get sequence names and lengths from header
+      # returns sequence names and lengths from header
       # more reliable than capturing bam_idxstats stdout
       def target_info
         load_index
@@ -611,56 +611,17 @@ module Bio
         end
         return result
       end
-      
+      # returns name and read mapping counts for each sequence
       def index_stats
-         raise SAMException.new(), "No BAMFile provided" unless @sam and @binary
-         raise SAMException.new(), "No FastA provided" unless @fasta_path
-                 
-         strptrs = []
-         strptrs << FFI::MemoryPointer.from_string("idxstats")
-         strptrs << FFI::MemoryPointer.from_string(@sam)
-         strptrs << nil
-         
-         # Now load all the pointers into a native memory block
-         argv = FFI::MemoryPointer.new(:pointer, strptrs.length)
-         strptrs.each_with_index do |p, i|
-            argv[i].put_pointer(0, p)
-         end
-         
-         # http://pleac.sourceforge.net/pleac_ruby/processmanagementetc.html
-         # "clean and secure" version
-         readme, writeme = IO.pipe
-         pid = fork {
-             # child
-             $stdout.reopen writeme
-             readme.close
-             Bio::DB::SAM::Tools.bam_idxstats(strptrs.length - 1,argv)
-             writeme.close
-             # Rails fix to avoid callbacks (closing mysql connection)
-             Kernel.exit!
-         }
-         # parent
-         writeme.close
-         # Process IO
-         results = {}
-         readme.each do |line|
-           info = line.split(/\t/)
-           next unless info.length == 4
-           results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
-         end
-         # only allow 5 sec for child to exit after closing IO
-         begin
-           Timeout.timeout(5) do
-             Process.waitpid(pid)
-           end
-         rescue
-           Process.detach(pid)
-           return []
-         end
-         return results
-       end
+        results = {}
+        stdin, stdout, stderr = Open3.popen3("#{File.join(File.expand_path(File.dirname(__FILE__)),'sam','external','samtools')} idxstats #{@sam}")
+        while line = stdout.gets
+          info = line.split(/\t/)
+          results[ info[0] ] = {:length => info[1].to_i, :mapped_reads => info[2].to_i, :unmapped_reads => info[3].to_i }
+        end
+        return results
+      end
       
-
     end
 
     class Tag
