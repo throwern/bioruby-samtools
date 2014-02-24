@@ -16,7 +16,11 @@ module Bio
   class DB
     class Sam
       attr_reader :sam_file
-
+      
+      # Returns local binary path to allow custom wrapped code or piped results
+      def self.binary_path
+        File.join(File.expand_path(File.dirname(__FILE__)),'sam','external','samtools')
+      end
       # To make a new sam object. Initialize expects a hash optsa with the following elemets:
       # fasta:: The fasta file with the reference. (nil)
       # bam:: path to a binary SAM file (nil)
