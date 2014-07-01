@@ -207,7 +207,6 @@ Gem::Specification.new do |s|
       s.add_development_dependency(%q<bundler>, ["~> 1.0.0"])
       s.add_development_dependency(%q<jeweler>, [">= 0"])
       s.add_development_dependency(%q<rcov>, [">= 0"])
-      s.add_development_dependency(%q<bio>, [">= 1.4.2"])
       s.add_development_dependency(%q<ffi>, [">= 0"])
       s.add_development_dependency(%q<rdoc>, [">= 0"])
     else
@@ -217,7 +216,6 @@ Gem::Specification.new do |s|
       s.add_dependency(%q<bundler>, ["~> 1.0.0"])
       s.add_dependency(%q<jeweler>, [">= 0"])
       s.add_dependency(%q<rcov>, [">= 0"])
-      s.add_dependency(%q<bio>, [">= 1.4.2"])
       s.add_dependency(%q<ffi>, [">= 0"])
       s.add_dependency(%q<rdoc>, [">= 0"])
     end
@@ -228,7 +226,6 @@ Gem::Specification.new do |s|
     s.add_dependency(%q<bundler>, ["~> 1.0.0"])
     s.add_dependency(%q<jeweler>, [">= 0"])
     s.add_dependency(%q<rcov>, [">= 0"])
-    s.add_dependency(%q<bio>, [">= 1.4.2"])
     s.add_dependency(%q<ffi>, [">= 0"])
     s.add_dependency(%q<rdoc>, [">= 0"])
   end
