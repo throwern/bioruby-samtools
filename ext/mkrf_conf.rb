@@ -12,7 +12,7 @@ version = File.open(File.join(path_external,"VERSION"),'r')
 Version = version.read
 version.close
 
-url = "https://sourceforge.net/projects/samtools/files/samtools/#{Version}/samtools-#{Version}.tar.bz2/download"
+url = "http://iweb.dl.sourceforge.net/project/samtools/samtools/#{Version}/samtools-#{Version}.tar.bz2"
 SamToolsFile = "samtools-#{Version}.tar.bz2"
 
 File.open(File.join(path,"Rakefile"),"w") do |rakefile|
